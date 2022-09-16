@@ -319,10 +319,10 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
                 BottleneckCSP, C3, C3TR, C3SPP, C3Ghost, nn.ConvTranspose2d, DWConvTranspose2d, C3x}:
             c1, c2 = ch[f], args[0]
             if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
+                c2 = make_divisible(c2 * gw, 8)  # 保证输出通道8的倍数，为什么？
 
             args = [c1, c2, *args[1:]]
-            if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:
+            if m in {BottleneckCSP, C3, C3TR, C3Ghost, C3x}:  # 这几个类型的积木的重复是在各积木的init里设置的，不是串联多个相同积木
                 args.insert(2, n)  # number of repeats
                 n = 1
         elif m is nn.BatchNorm2d:
@@ -342,13 +342,13 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
             c2 = ch[f] // args[0] ** 2
         else:
             c2 = ch[f]
-
+        # 如果要串联多个积木，分别创建单个积木，再串联成Sequential；如果单个积木，直接创建这个积木
         m_ = nn.Sequential(*(m(*args) for _ in range(n))) if n > 1 else m(*args)  # module
         t = str(m)[8:-2].replace('__main__.', '')  # module type
         np = sum(x.numel() for x in m_.parameters())  # number params
         m_.i, m_.f, m_.type, m_.np = i, f, t, np  # attach index, 'from' index, type, number params
         LOGGER.info(f'{i:>3}{str(f):>18}{n_:>3}{np:10.0f}  {t:<40}{str(args):<30}')  # print
-        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist
+        save.extend(x % i for x in ([f] if isinstance(f, int) else f) if x != -1)  # append to savelist  这里对i取模什么意义？x应该不会大于i吧！
         layers.append(m_)
         if i == 0:
             ch = []
