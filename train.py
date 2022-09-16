@@ -472,15 +472,19 @@ def parse_opt(known=False):
     parser.add_argument('--bbox_interval', type=int, default=-1, help='Set bounding-box image logging interval')
     parser.add_argument('--artifact_alias', type=str, default='latest', help='Version of dataset artifact to use')
 
+    # Project arguments
+    parser.add_argument("--check_git_status", action="store_true", help="Check whether you need to pull from remote.")
+
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
 
 def main(opt, callbacks=Callbacks()):
     # Checks
     if RANK in {-1, 0}:
-        print_args(vars(opt))
-        check_git_status()
-        check_requirements()
+        print_args(vars(opt))  # 打印参数
+        if opt.check_git_status:
+            check_git_status()  # 检查是否是最新代码
+        check_requirements()  # 检查依赖包，如果缺包会输出安装指令！
 
     # Resume (from specified or most recent last.pt)
     if opt.resume and not check_wandb_resume(opt) and not check_comet_resume(opt) and not opt.evolve:
@@ -506,7 +510,7 @@ def main(opt, callbacks=Callbacks()):
             opt.exist_ok, opt.resume = opt.resume, False  # pass resume to exist_ok and disable resume
         if opt.name == 'cfg':
             opt.name = Path(opt.cfg).stem  # use model.yaml as name
-        opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))
+        opt.save_dir = str(increment_path(Path(opt.project) / opt.name, exist_ok=opt.exist_ok))  # 设置试验路径
 
     # DDP mode
     device = select_device(opt.device, batch_size=opt.batch_size)
@@ -626,5 +630,6 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
+    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2".split())
     opt = parse_opt()
     main(opt)
