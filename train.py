@@ -471,9 +471,10 @@ def parse_opt(known=False):
     parser.add_argument('--upload_dataset', nargs='?', const=True, default=False, help='Upload data, "val" option')
     parser.add_argument('--bbox_interval', type=int, default=-1, help='Set bounding-box image logging interval')
     parser.add_argument('--artifact_alias', type=str, default='latest', help='Version of dataset artifact to use')
+    parser.add_argument("--disable_web_logger", action="store_true", help="If set, disable the web loggers.")
 
     # Project arguments
-    parser.add_argument("--check_git_status", action="store_true", help="Check whether you need to pull from remote.")
+    parser.add_argument("--check_git_status", action="store_true", help="If set, check whether you need to pull from remote.")
 
     return parser.parse_known_args()[0] if known else parser.parse_args()
 
@@ -630,6 +631,6 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
-    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2".split())
+    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2 --cache disk --disable_web_logger".split())
     opt = parse_opt()
     main(opt)
