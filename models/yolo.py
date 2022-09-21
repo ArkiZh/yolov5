@@ -112,30 +112,34 @@ class BaseModel(nn.Module):
         return self._forward_once(x, profile, visualize)  # single-scale inference, train
 
     def _forward_once(self, x, profile=False, visualize=False):
-        y, dt = [], []  # outputs
+        y = []  # store the necessary outputs
+        profile_info = {"time":[], "GFLOPs":[], "params":[]}
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers
             if profile:
-                self._profile_one_layer(m, x, dt)
+                self._profile_one_layer(m, x, profile_info)
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
             if visualize:
                 feature_visualization(x, m.type, m.i, save_dir=visualize)
         return x
 
-    def _profile_one_layer(self, m, x, dt):
+    def _profile_one_layer(self, m, x, profile_info):
         c = m == self.model[-1]  # is final layer, copy input as inplace fix
         o = thop.profile(m, inputs=(x.copy() if c else x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPs
+        profile_info["GFLOPs"].append(o)
+        profile_info["params"].append(m.np)
         t = time_sync()
-        for _ in range(10):
+        n_times = 10
+        for _ in range(n_times):
             m(x.copy() if c else x)
-        dt.append((time_sync() - t) * 100)
+        profile_info["time"].append((time_sync() - t) * 1000 / n_times)
         if m == self.model[0]:
             LOGGER.info(f"{'time (ms)':>10s} {'GFLOPs':>10s} {'params':>10s}  module")
-        LOGGER.info(f'{dt[-1]:10.2f} {o:10.2f} {m.np:10.0f}  {m.type}')
+        LOGGER.info(f'{profile_info["time"][-1]:10.2f} {profile_info["GFLOPs"][-1]:10.2f} {profile_info["params"][-1]:10.0f}  {m.type}')
         if c:
-            LOGGER.info(f"{sum(dt):10.2f} {'-':>10s} {'-':>10s}  Total")
+            LOGGER.info(f"{sum(profile_info['time']):10.2f} {sum(profile_info['GFLOPs']):10.2f} {sum(profile_info['params']):10.0f}  Total")
 
     def fuse(self):  # fuse model Conv2d() + BatchNorm2d() layers
         LOGGER.info('Fusing layers... ')
@@ -357,12 +361,13 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 
 if __name__ == '__main__':
+    sys.argv.extend("--cfg yolov5l.yaml --profile".split())
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='yolov5s.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='yolov5l.yaml', help='model.yaml')
     parser.add_argument('--batch-size', type=int, default=1, help='total batch size for all GPUs')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
-    parser.add_argument('--profile', action='store_true', help='profile model speed')
-    parser.add_argument('--line-profile', action='store_true', help='profile model speed layer by layer')
+    parser.add_argument('--profile', action='store_true', help='profile model speed in detail')
+    parser.add_argument('--profile-fuse', action='store_true', help='profile model speed with fuse')
     parser.add_argument('--test', action='store_true', help='test all yolo*.yaml')
     opt = parser.parse_args()
     opt.cfg = check_yaml(opt.cfg)  # check YAML
@@ -371,21 +376,23 @@ if __name__ == '__main__':
 
     # Create model
     im = torch.rand(opt.batch_size, 3, 640, 640).to(device)
-    model = Model(opt.cfg).to(device)
+    model = Model(opt.cfg).to(device)    
 
     # Options
-    if opt.line_profile:  # profile layer by layer
-        model(im, profile=True)
-
-    elif opt.profile:  # profile forward-backward
-        results = profile(input=im, ops=[model], n=3)
-
+    if opt.profile:
+        profile(input=im, ops=[model], n=3)  # profile forward-backward
+        print("Forward speed details:")
+        model(im, profile=True)  # profile layer by layer
+    elif opt.profile_fuse:
+        fused_model = model.fuse()
+        # profile(input=im, ops=[m], n=3)  # profile forward-backward
+        print("Forward speed details after fusing:")
+        fused_model(im, profile=True)  # profile layer by layer
     elif opt.test:  # test all models
         for cfg in Path(ROOT / 'models').rglob('yolo*.yaml'):
             try:
                 _ = Model(cfg)
             except Exception as e:
                 print(f'Error in {cfg}: {e}')
-
-    else:  # report fused model summary
-        model.fuse()
+    else:
+        pass

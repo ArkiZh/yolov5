@@ -194,7 +194,7 @@ def feature_visualization(x, module_type, stage, n=32, save_dir=Path('runs/detec
         if height > 1 and width > 1:
             f = save_dir / f"stage{stage}_{module_type.split('.')[-1]}_features.png"  # filename
 
-            blocks = torch.chunk(x[0].cpu(), channels, dim=0)  # select batch index 0, block by channels
+            blocks = torch.chunk(x[0].detach().cpu(), channels, dim=0)  # select batch index 0, block by channels
             n = min(n, channels)  # number of plots
             fig, ax = plt.subplots(math.ceil(n / 8), 8, tight_layout=True)  # 8 rows x n/8 cols
             ax = ax.ravel()
@@ -207,7 +207,7 @@ def feature_visualization(x, module_type, stage, n=32, save_dir=Path('runs/detec
             plt.title('Features')
             plt.savefig(f, dpi=300, bbox_inches='tight')
             plt.close()
-            np.save(str(f.with_suffix('.npy')), x[0].cpu().numpy())  # npy save
+            np.save(str(f.with_suffix('.npy')), x[0].detach().cpu().numpy())  # npy save
 
 
 def hist2d(x, y, n=100):
