@@ -304,7 +304,16 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
 
             # Forward
             with torch.cuda.amp.autocast(amp):
-                pred = model(imgs)  # forward
+                viz_freq = -1      # visualize frequency
+                profile_freq = -1  # profile frequency
+                viz_flag = (i+1)%viz_freq==0 if viz_freq>0 else False
+                profile_flag = (i+1)%profile_freq==0 if profile_freq>0 else False
+                if viz_flag:
+                    visualize_save_dir = Path(opt.save_dir, "visualize", f"epoch_{epoch:03d}_batch_{i:05d}")
+                    if not visualize_save_dir.exists():
+                        visualize_save_dir.mkdir(parents=True)
+                    viz_flag = visualize_save_dir
+                pred = model(imgs,profile=profile_flag, visualize=viz_flag)  # forward
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if RANK != -1:
                     loss *= WORLD_SIZE  # gradient averaged between devices in DDP mode
