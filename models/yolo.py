@@ -130,16 +130,20 @@ class BaseModel(nn.Module):
         o = thop.profile(m, inputs=(x.copy() if c else x,), verbose=False)[0] / 1E9 * 2 if thop else 0  # FLOPs
         profile_info["GFLOPs"].append(o)
         profile_info["params"].append(m.np)
+        from functools import reduce
+        shape_str = lambda t: ",".join(str(_) for _ in t.shape)
+        shape_in = reduce(lambda r, v: f"{r}{m.i-1 if v[1]==-1 else v[1]}:[{shape_str(x[v[0]])}] ", enumerate(m.f if isinstance(m.f, list) else [m.f]), "")
         t = time_sync()
         n_times = 10
         for _ in range(n_times):
-            m(x.copy() if c else x)
+            tmp_out = m(x.copy() if c else x)
         profile_info["time"].append((time_sync() - t) * 1000 / n_times)
+        shape_out = reduce(lambda r, v: f"{r}[{shape_str(v)}] ", tmp_out if isinstance(tmp_out, list) else [tmp_out], "")
         if m == self.model[0]:
-            LOGGER.info(f"{'time (ms)':>10s} {'GFLOPs':>10s} {'params':>10s}  module")
-        LOGGER.info(f'{profile_info["time"][-1]:10.2f} {profile_info["GFLOPs"][-1]:10.2f} {profile_info["params"][-1]:10.0f}  {m.type}')
+            LOGGER.info(f"{'index':>10s} {'time (ms)':>10s} {'GFLOPs':>10s} {'params':>10s}  {'module':<40s}  {'shape_in':<60s}  {'shape_out':<60s}")
+        LOGGER.info(f'{m.i:10d} {profile_info["time"][-1]:10.2f} {profile_info["GFLOPs"][-1]:10.2f} {profile_info["params"][-1]:10.0f}  {m.type:<40s}  {str(shape_in):<60s}  {str(shape_out):<60s}')
         if c:
-            LOGGER.info(f"{sum(profile_info['time']):10.2f} {sum(profile_info['GFLOPs']):10.2f} {sum(profile_info['params']):10.0f}  Total")
+            LOGGER.info(f"{'Total':>10s} {sum(profile_info['time']):10.2f} {sum(profile_info['GFLOPs']):10.2f} {sum(profile_info['params']):10.0f}  {'-':<40s}  {'-':<60s}  {'-':<60s}")
 
     def fuse(self):  # fuse model Conv2d() + BatchNorm2d() layers
         LOGGER.info('Fusing layers... ')
