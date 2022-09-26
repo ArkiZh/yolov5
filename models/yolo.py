@@ -365,7 +365,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 
 if __name__ == '__main__':
-    sys.argv.extend("--cfg yolov5l.yaml --profile".split())
+    sys.argv.extend("--cfg yolov5l.yaml".split())
     parser = argparse.ArgumentParser()
     parser.add_argument('--cfg', type=str, default='yolov5l.yaml', help='model.yaml')
     parser.add_argument('--batch-size', type=int, default=1, help='total batch size for all GPUs')
@@ -399,4 +399,4 @@ if __name__ == '__main__':
             except Exception as e:
                 print(f'Error in {cfg}: {e}')
     else:
-        pass
+        model(im, profile=False)  # profile layer by layer
