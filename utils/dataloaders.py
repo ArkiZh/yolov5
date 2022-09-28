@@ -463,17 +463,18 @@ class LoadImagesAndLabels(Dataset):
 
         # Update labels
         include_class = []  # filter labels to include only these classes (optional)
-        include_class_array = np.array(include_class).reshape(1, -1)
-        for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
-            if include_class:
-                j = (label[:, 0:1] == include_class_array).any(1)
-                self.labels[i] = label[j]
-                if segment:
-                    self.segments[i] = segment[j]
-            if single_cls:  # single-class training, merge all classes into 0
-                self.labels[i][:, 0] = 0
-                if segment:
-                    self.segments[i][:, 0] = 0
+        if include_class or single_cls:
+            include_class_array = np.array(include_class).reshape(1, -1)
+            for i, (label, segment) in enumerate(zip(self.labels, self.segments)):
+                if include_class:
+                    j = (label[:, 0:1] == include_class_array).any(1)
+                    self.labels[i] = label[j]
+                    if segment:
+                        self.segments[i] = segment[j]
+                if single_cls:  # single-class training, merge all classes into 0
+                    self.labels[i][:, 0] = 0
+                    if segment:
+                        self.segments[i][:, 0] = 0
 
         # Rectangular Training
         if self.rect:
