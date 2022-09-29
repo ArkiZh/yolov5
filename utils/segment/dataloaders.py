@@ -121,8 +121,8 @@ class LoadImagesAndLabelsAndMasks(LoadImagesAndLabels):  # for training/testing
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
+            img, ratio, offset_wh = letterbox(img, shape, auto=False, scaleup=self.augment)
+            shapes = (h0, w0), ((h / h0, w / w0), offset_wh)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
             # [array, array, ....], array.shape=(num_points, 2), xyxyxyxy
@@ -133,11 +133,11 @@ class LoadImagesAndLabelsAndMasks(LoadImagesAndLabels):  # for training/testing
                         segments[i_s],
                         ratio[0] * w,
                         ratio[1] * h,
-                        padw=pad[0],
-                        padh=pad[1],
+                        offset_w=offset_wh[0],
+                        offset_h=offset_wh[1],
                     )
             if labels.size:  # normalized xywh to pixel xyxy format
-                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
+                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, offset_w=offset_wh[0], offset_h=offset_wh[1])
 
             if self.augment:
                 img, labels, segments = random_perspective(

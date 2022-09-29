@@ -713,13 +713,13 @@ def xywh2xyxy(x):
     return y
 
 
-def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0):
+def xywhn2xyxy(x, w=640, h=640, offset_w=0, offset_h=0):
     # Convert nx4 boxes from [x, y, w, h] normalized to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
-    y[:, 0] = w * (x[:, 0] - x[:, 2] / 2) + padw  # top left x
-    y[:, 1] = h * (x[:, 1] - x[:, 3] / 2) + padh  # top left y
-    y[:, 2] = w * (x[:, 0] + x[:, 2] / 2) + padw  # bottom right x
-    y[:, 3] = h * (x[:, 1] + x[:, 3] / 2) + padh  # bottom right y
+    y[:, 0] = w * (x[:, 0] - x[:, 2] / 2) + offset_w  # top left x
+    y[:, 1] = h * (x[:, 1] - x[:, 3] / 2) + offset_h  # top left y
+    y[:, 2] = w * (x[:, 0] + x[:, 2] / 2) + offset_w  # bottom right x
+    y[:, 3] = h * (x[:, 1] + x[:, 3] / 2) + offset_h  # bottom right y
     return y
 
 
@@ -735,11 +735,11 @@ def xyxy2xywhn(x, w=640, h=640, clip=False, eps=0.0):
     return y
 
 
-def xyn2xy(x, w=640, h=640, padw=0, padh=0):
+def xyn2xy(x, w=640, h=640, offset_w=0, offset_h=0):
     # Convert normalized segments into pixel segments, shape (n,2)
     y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
-    y[:, 0] = w * x[:, 0] + padw  # top left x
-    y[:, 1] = h * x[:, 1] + padh  # top left y
+    y[:, 0] = w * x[:, 0] + offset_w  # top left x
+    y[:, 1] = h * x[:, 1] + offset_h  # top left y
     return y
 
 

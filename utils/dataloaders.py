@@ -478,9 +478,10 @@ class LoadImagesAndLabels(Dataset):
 
         # Rectangular Training
         if self.rect:
-            # Sort by aspect ratio
-            s = self.shapes  # wh
-            ar = s[:, 1] / s[:, 0]  # aspect ratio
+            # Sort by aspect ratio  根据高宽比排序，将高宽比接近的放到一个batch，即每个batch包含的图片已经固定了，无法shuffle
+            # TODO 这里有优化空间：可以每次取样本时在当前图片高宽比附近随机取图片，然后根据该batch的数据动态确定宽高比组装batch
+            s = self.shapes  # W,H
+            ar = s[:, 1] / s[:, 0]  # aspect ratio   H/W
             irect = ar.argsort()
             self.im_files = [self.im_files[i] for i in irect]
             self.label_files = [self.label_files[i] for i in irect]
@@ -495,10 +496,10 @@ class LoadImagesAndLabels(Dataset):
                 ari = ar[bi == i]
                 mini, maxi = ari.min(), ari.max()
                 if maxi < 1:
-                    shapes[i] = [maxi, 1]
+                    shapes[i] = [maxi, 1]      # H, W  胖图片
                 elif mini > 1:
-                    shapes[i] = [1, 1 / mini]
-
+                    shapes[i] = [1, 1 / mini]  # H, W  瘦图片
+            # 找到能包裹住图片的最小stride整数倍尺寸，pad控制在这个最小尺寸基础上高宽方向上各多添加几个stride长度
             self.batch_shapes = np.ceil(np.array(shapes) * img_size / stride + pad).astype(int) * stride
 
         # Cache images into RAM/disk for faster training (WARNING: large datasets may exceed system resources)
@@ -508,7 +509,7 @@ class LoadImagesAndLabels(Dataset):
             gb = 0  # Gigabytes of cached images
             self.im_hw0, self.im_hw = [None] * n, [None] * n
             fcn = self.cache_images_to_disk if cache_images == 'disk' else self.load_image
-            results = ThreadPool(NUM_THREADS).imap(fcn, range(n))
+            results = ThreadPool(NUM_THREADS).imap(fcn, range(n))   # TODO ThreadPool换成子进程提高效率，Python多线程没用吧？
             pbar = tqdm(enumerate(results), total=n, bar_format=BAR_FORMAT, disable=LOCAL_RANK > 0)
             for i, x in pbar:
                 if cache_images == 'disk':
@@ -586,12 +587,12 @@ class LoadImagesAndLabels(Dataset):
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
-            img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
-            shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
+            img, ratio, offset_wh = letterbox(img, shape, auto=False, scaleup=self.augment)
+            shapes = (h0, w0), ((h / h0, w / w0), offset_wh)  # for COCO mAP rescaling
 
             labels = self.labels[index].copy()
             if labels.size:  # normalized xywh to pixel xyxy format
-                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
+                labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, offset_w=offset_wh[0], offset_h=offset_wh[1])
 
             if self.augment:
                 img, labels = random_perspective(img,
@@ -641,7 +642,7 @@ class LoadImagesAndLabels(Dataset):
         return torch.from_numpy(img), labels_out, self.im_files[index], shapes
 
     def load_image(self, i):
-        # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
+        # Loads 1 image from dataset index 'i', returns (resized im, original hw, resized hw)
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
         if im is None:  # not cached in RAM
             if fn.exists():  # load npy

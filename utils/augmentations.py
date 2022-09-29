@@ -107,37 +107,39 @@ def replicate(im, labels):
     return im, labels
 
 
-def letterbox(im, new_shape=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
+def letterbox(im, target_hw=(640, 640), color=(114, 114, 114), auto=True, scaleFill=False, scaleup=True, stride=32):
     # Resize and pad image while meeting stride-multiple constraints
-    shape = im.shape[:2]  # current shape [height, width]
-    if isinstance(new_shape, int):
-        new_shape = (new_shape, new_shape)
+    origin_hw = im.shape[:2]  # current shape [height, width]
+    if isinstance(target_hw, int):
+        target_hw = (target_hw, target_hw)
 
     # Scale ratio (new / old)
-    r = min(new_shape[0] / shape[0], new_shape[1] / shape[1])
+    r = min(target_hw[0] / origin_hw[0], target_hw[1] / origin_hw[1])
     if not scaleup:  # only scale down, do not scale up (for better val mAP)
-        r = min(r, 1.0)
+        r = min(r, 1.0)  # 不放大图片，直接上下左右填黑边，可能是为了防止变模糊？？
 
     # Compute padding
     ratio = r, r  # width, height ratios
-    new_unpad = int(round(shape[1] * r)), int(round(shape[0] * r))
-    dw, dh = new_shape[1] - new_unpad[0], new_shape[0] - new_unpad[1]  # wh padding
-    if auto:  # minimum rectangle
+    hw_resize = round(origin_hw[0] * r), round(origin_hw[1] * r)  # 缩放到的H, W
+    dh, dw = target_hw[0] - hw_resize[0], target_hw[1] - hw_resize[1]  # 变成new_shape还差dw, dh个像素
+    if auto:  # minimum rectangle  取余数这里做什么的？没看懂！
         dw, dh = np.mod(dw, stride), np.mod(dh, stride)  # wh padding
-    elif scaleFill:  # stretch
-        dw, dh = 0.0, 0.0
-        new_unpad = (new_shape[1], new_shape[0])
-        ratio = new_shape[1] / shape[1], new_shape[0] / shape[0]  # width, height ratios
+    elif scaleFill:  # stretch  直接resize到target大小，不padding了
+        dw, dh = 0, 0
+        hw_resize = target_hw
+        ratio = target_hw[1] / origin_hw[1], target_hw[0] / origin_hw[0]  # width, height ratios
 
-    dw /= 2  # divide padding into 2 sides
-    dh /= 2
+    if origin_hw[0] != hw_resize[0] or origin_hw[1] != hw_resize[1]:  # resize
+        im = cv2.resize(im, hw_resize[::-1], interpolation=cv2.INTER_LINEAR)
 
-    if shape[::-1] != new_unpad:  # resize
-        im = cv2.resize(im, new_unpad, interpolation=cv2.INTER_LINEAR)
-    top, bottom = int(round(dh - 0.1)), int(round(dh + 0.1))
-    left, right = int(round(dw - 0.1)), int(round(dw + 0.1))
-    im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
-    return im, ratio, (dw, dh)
+    top = dh//2
+    bottom = dh-top
+    left = dw//2
+    right = dw-left
+    if dh>0 or dw>0:
+        im = cv2.copyMakeBorder(im, top, bottom, left, right, cv2.BORDER_CONSTANT, value=color)  # add border
+
+    return im, ratio, (left, top)
 
 
 def random_perspective(im,
@@ -222,7 +224,7 @@ def random_perspective(im,
             # create new boxes
             x = xy[:, [0, 2, 4, 6]]
             y = xy[:, [1, 3, 5, 7]]
-            new = np.concatenate((x.min(1), y.min(1), x.max(1), y.max(1))).reshape(4, n).T
+            new = np.stack((x.min(1), y.min(1), x.max(1), y.max(1)),axis=-1)
 
             # clip
             new[:, [0, 2]] = new[:, [0, 2]].clip(0, width)
@@ -230,10 +232,9 @@ def random_perspective(im,
 
         # filter candidates
         i = box_candidates(box1=targets[:, 1:5].T * s, box2=new.T, area_thr=0.01 if use_segments else 0.10)
-        targets = targets[i]
-        targets[:, 1:5] = new[i]
+        new_targets = np.concatenate([targets[i,:1],new[i]], axis=1)
 
-    return im, targets
+    return im, new_targets
 
 
 def copy_paste(im, labels, segments, p=0.5):
@@ -299,7 +300,7 @@ def box_candidates(box1, box2, wh_thr=2, ar_thr=100, area_thr=0.1, eps=1e-16):  
     # Compute candidate boxes: box1 before augment, box2 after augment, wh_thr (pixels), aspect_ratio_thr, area_ratio
     w1, h1 = box1[2] - box1[0], box1[3] - box1[1]
     w2, h2 = box2[2] - box2[0], box2[3] - box2[1]
-    ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))  # aspect ratio
+    ar = np.maximum(w2 / (h2 + eps), h2 / (w2 + eps))  # aspect ratio 高宽比与宽高比中的最大值，需小于ar_thr
     return (w2 > wh_thr) & (h2 > wh_thr) & (w2 * h2 / (w1 * h1 + eps) > area_thr) & (ar < ar_thr)  # candidates
 
 

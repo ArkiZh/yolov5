@@ -113,7 +113,7 @@ class BaseModel(nn.Module):
 
     def _forward_once(self, x, profile=False, visualize=False):
         y = []  # store the necessary outputs
-        profile_info = {"time":[], "GFLOPs":[], "params":[]}
+        profile_info = {"time":[], "GFLOPs":[], "params":[]} if profile else None
         for m in self.model:
             if m.f != -1:  # if not from previous layer
                 x = y[m.f] if isinstance(m.f, int) else [x if j == -1 else y[j] for j in m.f]  # from earlier layers

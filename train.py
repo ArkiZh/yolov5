@@ -278,7 +278,24 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
         if RANK in {-1, 0}:
             pbar = tqdm(pbar, total=nb, bar_format='{l_bar}{bar:10}{r_bar}{bar:-10b}')  # progress bar
         optimizer.zero_grad()
-        for i, (imgs, targets, paths, _) in pbar:  # batch -------------------------------------------------------------
+        for i, (imgs, targets, paths, _) in pbar:
+            # 数据说明：
+            # imgs: BxCxHxW   C=RGB  值为0-255
+            # 
+            # targets: Lx6 其中：
+            # L=当前batch中所有框的个数
+            # 第二维度6分别是：
+            # 0. 当前框属于batch中的第几个样本，0开始计数，整数
+            # 1. 当前框中物体编号，整数
+            # 2. 剩余为(使用图片宽高归一化过的,[0,1]范围内的)框中心点坐标x,y, 以及框宽高w,h
+            # 
+            # paths: list of image path
+            # 
+            # 最后一个是shapes，只有不用mosaic时才有值
+            # B个原始图像转成现有图像的操作过程A，每个A是一个tuple: (h0, w0), ((h / h0, w / w0), offset_wh)
+            # 其中h0 w0为原始图像高宽，h w为处理后的图像高宽，offset_wh为坐标点wh方向的偏移量
+
+            # batch start -------------------------------------------------------------
             callbacks.run('on_train_batch_start')
             ni = i + nb * epoch  # number integrated batches (since train start)
             imgs = imgs.to(device, non_blocking=True).float() / 255  # uint8 to float32, 0-255 to 0.0-1.0
@@ -343,7 +360,7 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
                 callbacks.run('on_train_batch_end', model, ni, imgs, targets, paths, list(mloss))
                 if callbacks.stop_training:
                     return
-            # end batch ------------------------------------------------------------------------------------------------
+            # batch end ------------------------------------------------------------------------------------------------
 
         # Scheduler
         lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
@@ -640,6 +657,6 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
-    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2 --cache disk --disable_web_logger".split())
+    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2 --cache disk --disable_web_logger --rect".split())
     opt = parse_opt()
     main(opt)
