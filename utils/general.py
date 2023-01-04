@@ -527,7 +527,7 @@ def check_amp(model):
         a = m(im).xywhn[0]  # FP32 inference
         m.amp = True
         b = m(im).xywhn[0]  # AMP inference
-        return a.shape == b.shape and torch.allclose(a, b, atol=0.1)  # close to 10% absolute tolerance
+        return a.shape == b.shape and torch.allclose(b, a, rtol=0.1)  # close to 10% absolute tolerance
 
     prefix = colorstr('AMP: ')
     device = next(model.parameters()).device  # get model device

@@ -197,7 +197,7 @@ class ComputeLoss:
 
         for i in range(self.nl):
             anchors, shape = self.anchors[i], pred[i].shape
-            batch_size, feature_na, feature_h, feature_w, feature_c = pred[i].shape
+            batch_size, feature_na, feature_h, feature_w, feature_c = shape
             gain[2:6] = torch.tensor([feature_w, feature_h, feature_w, feature_h])  # xyxy gain  获取当前检测层特征图的宽高，对
 
             # Match targets to anchors

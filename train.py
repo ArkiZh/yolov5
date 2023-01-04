@@ -657,6 +657,6 @@ def run(**kwargs):
 
 
 if __name__ == "__main__":
-    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --batch-size 2 --cache disk --disable_web_logger --rect".split())
+    sys.argv.extend("--data VOC.yaml --cfg yolov5n.yaml --weights '' --hyp data/hyps/hyp.VOC.yaml --batch-size 2 --cache disk --disable_web_logger --rect".split())
     opt = parse_opt()
     main(opt)
