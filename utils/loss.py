@@ -112,7 +112,7 @@ class ComputeLoss:
         self.balance = {3: [4.0, 1.0, 0.4]}.get(m.nl, [4.0, 1.0, 0.25, 0.06, 0.02])  # P3-P7
         self.ssi = list(m.stride).index(16) if autobalance else 0  # stride 16 index
         self.BCEcls, self.BCEobj, self.gr, self.hyp, self.autobalance = BCEcls, BCEobj, 1.0, h, autobalance
-        self.na = m.na  # number of anchors
+        self.nb = m.na  # number of boxes per anchor
         self.nc = m.nc  # number of classes
         self.nl = m.nl  # number of layers
         self.anchors = m.anchors
@@ -176,62 +176,64 @@ class ComputeLoss:
 
     def build_targets(self, pred, targets):
         # Build targets for compute_loss(), input targets(image index inside current batch, class index, x, y, w, h)
-        na, nt = self.na, targets.shape[0]  # number of anchors, targets
+        boxes_per_anchor, target_cnt = self.nb, targets.shape[0]  # number of anchors, targets
         tcls, tbox, indices, anch = [], [], [], []
-        gain = torch.ones(7, device=self.device)  # normalized to gridspace gain
-        ai = torch.arange(na, device=self.device).float().view(na, 1).repeat(1, nt)  # same as .repeat_interleave(nt)   Shape: na,nt
-        targets = torch.cat((targets.repeat(na, 1, 1), ai[..., None]), 2)  # append anchor indices
-        # targets形状从 [nt, 6] 变成了 [na, nt, 7], 第0维为na个anchor，第1维为nt个真实框，第2维为真实框信息：SampleIndex,ClassIndex,x,y,w,h,AnchorIndex
+        anchor_index_nb_nt = torch.arange(boxes_per_anchor, device=self.device).float().view(boxes_per_anchor, 1, 1).repeat(1, target_cnt, 1) # shape: [nb, nt, 1]
+        targets_nb_nt = targets.repeat(boxes_per_anchor, 1, 1) # shape: [nb, nt, 6]
+        targets_new = torch.cat((targets_nb_nt, anchor_index_nb_nt), dim=2)  # append anchor indices
+        # targets形状从 [nt, 6] 变成了 [nb, nt, 7], 第0维为nb个框，第1维为nt个真实框，第2维为真实框信息：SampleIndex,ClassIndex,x,y,w,h,AnchorIndex
 
         g = 0.5  # bias
         offset = torch.tensor(
             [
                 [0, 0],  # gxy 不偏移              无论何时都分配到当前grid
-                [1, 0],  # gxy x方向偏移           到当前grid左边线不足g，分配到左边grid
-                [0, 1],  # gxy y方向偏移           到当前grid上边线不足g，分配到上面grid
-                [-1, 0], # gxy inverse x方向偏移   到当前grid右边线不足g，分配到右边grid
-                [0, -1], # gxy inverse y方向偏移   到当前grid下边线不足g，分配到下面grid
-                # [1, 1], [1, -1], [-1, 1], [-1, -1],  # jk,jm,lk,lm
+                [-1, 0],  # gxy x方向偏移           到当前grid左边线不足g，分配到左边grid
+                [0, -1],  # gxy y方向偏移           到当前grid上边线不足g，分配到上面grid
+                [1, 0], # gxy inverse x方向偏移   到当前grid右边线不足g，分配到右边grid
+                [0, 1], # gxy inverse y方向偏移   到当前grid下边线不足g，分配到下面grid
             ],
             device=self.device).float() * g  # offsets
 
         for i in range(self.nl):
             anchors, shape = self.anchors[i], pred[i].shape
-            batch_size, feature_na, feature_h, feature_w, feature_c = shape
-            gain[2:6] = torch.tensor([feature_w, feature_h, feature_w, feature_h])  # xyxy gain  获取当前检测层特征图的宽高，对
+            batch_size, feature_nb, feature_h, feature_w, feature_c = shape
+            wh_scaler = torch.tensor([1, 1, feature_w, feature_h, feature_w, feature_h, 1], device=self.device)  # xyxy gain  获取当前检测层特征图的宽高，将真实框相对大小映射到当前特征图
 
             # Match targets to anchors
-            t = targets * gain  # shape(na,nt,7)
-            if nt:
+            t = targets_new * wh_scaler  # shape(nb,nt,7)
+            if target_cnt:
                 # Matches  为每个真实框找可以形状匹配的锚框
-                r = t[..., 4:6] / anchors[:, None]  # w,h ratio  Shape: [na, nt, 2] 对多有真实框，计算与nt个锚框的宽度比例、高度比例
-                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare 筛选出宽度比例与高度比例小于阈值的 Shape: [na, nt], 每一行代表与当前锚框形状接近的真实框
+                r = t[..., 4:6] / anchors[:, None]  # w,h ratio  Shape: [nb, nt, 2] 对每个真实框，计算与nb个锚框的宽度比例、高度比例
+                j = torch.max(r, 1 / r).max(2)[0] < self.hyp['anchor_t']  # compare 筛选出宽度比例与高度比例小于阈值的 Shape: [nb, nt], 每一行代表与当前锚框形状接近的真实框
                 # j = wh_iou(anchors, t[:, 4:6]) > model.hyp['iou_t']  # iou(3,n)=wh_iou(anchors(3,2), gwh(n,2))
-                t = t[j]  # filter 筛选出根据形状阈值匹配到的真实框锚框组合 Shape: [M, 7]  M为匹配到的组合数量  TODO 可能出现真实框没有找到形状接近的锚框情况，怎么处理？
-                M = t.shape[0]
+                t_matched = t[j]  # filter 筛选出根据形状阈值匹配到的真实框锚框组合 Shape: [M, 7]  M为匹配到的组合数量  TODO 可能出现真实框没有找到形状接近的锚框情况，怎么处理？
+                M = t_matched.shape[0]
                 
                 # Offsets
-                truth_xy = t[:, 2:4]  # grid xy 真实框在当前特征图中的中心点xy坐标（距离左上角点的距离）  Shape: [M, 2]
-                gxy_inverse = gain[[2, 3]] - truth_xy  # inverse  翻转成距离右下角点的距离
-                hit_x, hit_y = ((truth_xy % 1 < g) & (truth_xy > 1)).T  # 对xy坐标分别判断是否：大于1且模1得到的小数部分小于g。 hit_x:满足条件的x坐标；hit_y：满足条件的y坐标。 [M,2] --> [2,M]
-                hit_inverse_x, hit_inverse_y = ((gxy_inverse % 1 < g) & (gxy_inverse > 1)).T
+                xy = t_matched[:, 2:4]  # grid xy 真实框在当前特征图中的中心点xy坐标（距离左上角点的距离）  Shape: [M, 2]
+                xy_inverse = wh_scaler[[2, 3]] - xy  # inverse  翻转成距离右下角点的距离
+                hit_x, hit_y = ((xy % 1 < g) & (xy > 1)).T  # 对xy坐标分别判断是否：大于1且模1得到的小数部分小于g。 hit_x:满足条件的x坐标；hit_y：满足条件的y坐标。 [M,2] --> [2,M]
+                hit_inverse_x, hit_inverse_y = ((xy_inverse % 1 < g) & (xy_inverse > 1)).T
                 offset_hit = torch.stack([torch.ones_like(hit_x), hit_x, hit_y, hit_inverse_x, hit_inverse_y])  # Shape: [5, M]
-                t = t.repeat((5, 1, 1))[offset_hit]   # Shape: [M, 7] --> [5, M, 7] --> [Q, 7]  Q为offset_hit中True的个数
-                offsets = offset[:,None].repeat(1,M,1)[offset_hit]  # Shape: [5, 2] --> [5,1,2] --> [5,M,2] --> [Q, 2]  Q为offset_hit中True的个数
+                t_matched = t_matched.repeat((5, 1, 1))[offset_hit]   # Shape: [M, 7] --> [5, M, 7] --> [Q, 7]  Q为offset_hit中True的个数
+                offsets = offset[:,None, :].repeat(1,M,1)[offset_hit]  # Shape: [5, 2] --> [5,1,2] --> [5,M,2] --> [Q, 2]  Q为offset_hit中True的个数
             else:
-                t = targets[0]
+                t_matched = targets_new[0]
                 offsets = 0
 
             # Define
-            bc, truth_xy, truth_wh, anchor_id = t.chunk(chunks=4, dim=1)  # (imageId, classId), 真实框xy, 真实框wh, anchors
-            anchor_id, (img_id, class_id) = anchor_id.long().view(-1), bc.long().T  # anchors, image, class
-            grid_xy = (truth_xy - offsets).long()
+            img_id, class_id, truth_xy, truth_wh, box_id = t_matched.tensor_split([1,2,4,6], dim=1)  # imageId, classId, 真实框xy, 真实框wh, box编号
+            img_id = img_id.view(-1).long()
+            class_id = class_id.view(-1).long()
+            box_id = box_id.view(-1).long()
+
+            grid_xy = (truth_xy + offsets).long()
             grid_x, grid_y = grid_xy[:,0], grid_xy[:, 1]  # grid indices 
 
             # Append  不需要对grid坐标clip了，找grid时边缘一格只用当前grid，不偏移。 grid_y.clamp_(0, shape[2] - 1), grid_x.clamp_(0, shape[3] - 1)
-            indices.append((img_id, anchor_id, grid_y, grid_x))  # imageId, anchorId, grid_y, grid_x 的shape一样：[Q]
+            indices.append((img_id, box_id, grid_y, grid_x))  # imageId, anchorId, grid_y, grid_x 的shape一样：[Q]
             tbox.append(torch.cat((truth_xy - grid_xy, truth_wh), 1))  # 每个grid的回归目标：真实中心相对当前grid的xy偏移，真实wh。 Shape: [Q, 4]
-            anch.append(anchors[anchor_id])  # anchors  Shape: [Q, 4]
             tcls.append(class_id)  # class  Shape: [Q]
+            anch.append(anchors[box_id])  # anchors  Shape: [Q, 4]
 
         return tcls, tbox, indices, anch
